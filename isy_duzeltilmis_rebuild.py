@@ -1,13 +1,13 @@
 """
-İŞ YATIRIM HİSSE TARİHSEL FİYATLAR (DÜZELTİLMİŞ)
+IS YATIRIM HISSE TARIHSEL FIYATLAR (DUZELTILMIS)
 ------------------------------------------------
-Her çalıştırmada:
-- 31.12.2001 → bugüne kadar tüm hisselerin düzeltilmiş kapanışlarını (TL) çeker.
-- Veritabanındaki eski tabloyu siler, yenisini oluşturur.
-- SQLite kullanır (tek dosya, kurulumsuz).
-- Günlük veya haftalık çalıştırmak için idealdir (cron / Task Scheduler).
+Her calistirmada:
+- 31.12.2001 → bugune kadar tum hisselerin duzeltilmis kapanislarini (TL) ceker.
+- Veritabanindaki eski tabloyu siler, yenisini olusturur.
+- SQLite kullanir (tek dosya, kurulumsuz).
+- Gunluk veya haftalik calistirmak icin idealdir (cron / Task Scheduler).
 
-Yazan: ChatGPT (GPT-5)
+Author: Deniz Kertmen
 """
 
 import time, re, json, sqlite3
@@ -26,14 +26,14 @@ API  = f"{BASE}/_layouts/15/Isyatirim.Website/Common/Data.aspx/GetStockData"
 START_DATE = "31-12-2001"
 END_DATE   = date.today().strftime("%d-%m-%Y")
 DB_FILE    = "isyatirim_duzeltilmis.db"
-SLEEP_BETWEEN = 0.5  # saniye – yavaş, nazik, istikrarlı
+SLEEP_BETWEEN = 0.5  # saniye – yavas, nazik, istikrarli
 
 
 # ------------------------------------------------
-# YARDIMCI FONKSİYONLAR
+# YARDIMCI FONKSIYONLAR
 # ------------------------------------------------
 def get_all_symbols():
-    """Sol üstteki combobox’taki tüm sembolleri döndürür."""
+    """Sol ustteki combobox’taki tum sembolleri dsndurur."""
     r = requests.get(PAGE, timeout=30)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
@@ -48,13 +48,13 @@ def get_all_symbols():
             symbols.add(val)
     syms = sorted(symbols)
     if not syms:
-        raise RuntimeError("Sembol listesi bulunamadı — sayfa yapısı değişmiş olabilir.")
+        raise RuntimeError("Sembol listesi bulunamadi — sayfa yapisi degismis olabilir.")
     print(f"{len(syms)} sembol bulundu.")
     return syms
 
 
 def fetch_adjusted(symbol, start=START_DATE, end=END_DATE, pause=SLEEP_BETWEEN):
-    """Bir hisse için düzeltilmiş fiyat serisini (type=1) çeker."""
+    """Bir hisse icin duzeltilmis fiyat serisini (type=1) ceker."""
     params = {"symbol": symbol, "startdate": start, "enddate": end, "type": "1"}
     try:
         r = requests.get(API, params=params, timeout=60)
@@ -65,7 +65,7 @@ def fetch_adjusted(symbol, start=START_DATE, end=END_DATE, pause=SLEEP_BETWEEN):
             return pd.DataFrame(columns=["Ticker","Tarih","KapanisTL"])
         df = pd.DataFrame(rows)
 
-        # kolon isimleri farklı olabiliyor, en yaygınlarını ara
+        # kolon isimleri farkli olabiliyor, en yayginlarini ara
         date_col  = next((c for c in df.columns if c.lower() in ["tarih","hg_tarih","hgdg_tarih","date"]), None)
         close_col = next((c for c in df.columns if c.lower() in ["kapanis","kapanistl","hgdg_kapanis","close","closeprice"]), None)
         if not date_col or not close_col:
@@ -86,7 +86,7 @@ def fetch_adjusted(symbol, start=START_DATE, end=END_DATE, pause=SLEEP_BETWEEN):
 
 
 # ------------------------------------------------
-# ANA AKIŞ
+# ANA AKIS
 # ------------------------------------------------
 def rebuild_database():
     symbols = get_all_symbols()
@@ -100,22 +100,22 @@ def rebuild_database():
             print(f"{i}/{len(symbols)} tamam…")
 
     if not all_df:
-        print("Hiç veri çekilemedi.")
+        print("Hic veri cekilemedi.")
         return
 
     df_final = pd.concat(all_df, ignore_index=True)
     df_final.sort_values(["Ticker","Tarih"], inplace=True)
 
-    # SQLite veritabanını sıfırla ve yaz
+    # SQLite veritabanini sifirla ve yaz
     conn = sqlite3.connect(DB_FILE)
     df_final.to_sql("prices_adjusted", conn, if_exists="replace", index=False)
     conn.close()
 
-    print(f"\nVeritabanı yenilendi: {DB_FILE}")
-    print(f"Toplam kayıt: {len(df_final):,}")
+    print(f"\nVeritabani yenilendi: {DB_FILE}")
+    print(f"Toplam kayit: {len(df_final):,}")
 
 
 if __name__ == "__main__":
-    print(f"\nİşlem başladı: {START_DATE} → {END_DATE}")
+    print(f"\nIslem basladi: {START_DATE} → {END_DATE}")
     rebuild_database()
-    print("Tamamlandı ✅")
+    print("Tamamlandi ✅")

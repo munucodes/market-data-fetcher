@@ -82,7 +82,7 @@ def fetch_adjusted(symbol, start=START_DATE, end=END_DATE, pause=SLEEP_BETWEEN):
         out = df[[date_col, close_col]].copy()
         out.columns = ["Tarih","KapanisTL"]
         out["Ticker"] = symbol
-        out["Tarih"] = pd.to_datetime(out["Tarih"], errors="coerce").dt.date
+        out["Tarih"] = pd.to_datetime(out["Tarih"], dayfirst=True, errors="coerce").dt.date
         out["KapanisTL"] = pd.to_numeric(out["KapanisTL"], errors="coerce")
         out = out.dropna(subset=["Tarih","KapanisTL"])
         time.sleep(pause)

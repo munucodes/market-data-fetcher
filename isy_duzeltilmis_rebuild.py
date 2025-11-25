@@ -21,7 +21,11 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------
 BASE = "https://www.isyatirim.com.tr"
 PAGE = f"{BASE}/tr-tr/analiz/hisse/Sayfalar/Tarihsel-Fiyat-Bilgileri.aspx"
-API  = f"{BASE}/_layouts/15/Isyatirim.Website/Common/Data.aspx/GetStockData"
+API  = f"{BASE}/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
 
 START_DATE = "31-12-2001"
 END_DATE   = date.today().strftime("%d-%m-%Y")
@@ -55,9 +59,13 @@ def get_all_symbols():
 
 def fetch_adjusted(symbol, start=START_DATE, end=END_DATE, pause=SLEEP_BETWEEN):
     """Bir hisse icin duzeltilmis fiyat serisini (type=1) ceker."""
-    params = {"symbol": symbol, "startdate": start, "enddate": end, "type": "1"}
+    params = {
+    "hisse": symbol,
+    "startdate": start,
+    "enddate": end,
+    }
     try:
-        r = requests.get(API, params=params, timeout=60)
+        r = requests.get(API, params=params, headers=HEADERS, timeout=60)
         r.raise_for_status()
         data = r.json() if "json" in r.headers.get("content-type","") else json.loads(r.text)
         rows = data.get("value") or data

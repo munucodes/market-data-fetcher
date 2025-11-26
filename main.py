@@ -1,5 +1,5 @@
 """
-IS YATIRIM HISSE TARIHSEL FIYATLAR (DUZELTILMIS)
+HISSE TARIHSEL FIYATLAR (DUZELTILMIS)
 ------------------------------------------------
 Her calistirmada:
 - 31.12.2001 → bugune kadar tum hisselerin duzeltilmis kapanislarini (TL) ceker.

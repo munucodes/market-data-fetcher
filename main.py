@@ -29,7 +29,7 @@ HEADERS = {
 
 START_DATE = "31-12-2001"
 END_DATE   = date.today().strftime("%d-%m-%Y")
-DB_FILE    = "isyatirim_duzeltilmis.db"
+DB_FILE    = "adjusted_prices.db"
 SLEEP_BETWEEN = 0.5  # saniye – yavas, nazik, istikrarli
 
 TEMPLATE_XLSX = "templates/portfolio_trading.xlsx"      # gelen sablon
@@ -302,6 +302,9 @@ def fill_excel_from_db(template_path, output_path, db_file=DB_FILE):
     price_matrix = price_matrix.reindex(index=dates_list, columns=tickers)
     price_matrix = price_matrix.ffill()
 
+    # Fiyatlari 2 ondalık basamaga yuvarla (sadece Excel icin, DB'yi etkilemez)
+    price_matrix = price_matrix.round(2)
+
     # Excel icin: satirlar ticker, sutunlar tarih olacak sekilde cevir
     matrix_for_excel = price_matrix.T   # shape: (len(tickers), len(dates_list))
 
@@ -316,6 +319,15 @@ def fill_excel_from_db(template_path, output_path, db_file=DB_FILE):
     # 5) Disari yaz (ExcelWriter kullanarak daha temiz cikti)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         filled.to_excel(writer, header=False, index=False)
+
+        # --- OUTPUT EXCEL DATE FORMATTING ---
+    wb = writer.book
+    ws = wb.active  # tek sheet
+
+    # Tarihler 2. satirda (index 1), B sutunundan (index 1) itibaren basliyor
+    for col in range(1, 1 + len(dates_list)):
+        cell = ws.cell(row=2, column=col+1)  # Excel rows/cols are 1-based
+        cell.number_format = "dd/mm/yyyy"
 
     print(f"Excel successfully generated for range {start_iso} → {end_iso}")
 

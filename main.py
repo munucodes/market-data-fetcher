@@ -32,6 +32,9 @@ END_DATE   = date.today().strftime("%d-%m-%Y")
 DB_FILE    = "isyatirim_duzeltilmis.db"
 SLEEP_BETWEEN = 0.5  # saniye – yavas, nazik, istikrarli
 
+TEMPLATE_XLSX = "templates/portfolio_trading.xlsx"      # gelen sablon
+OUTPUT_XLSX   = "output/portfolio_trading_filled.xlsx"  # cikti
+
 
 # ------------------------------------------------
 # YARDIMCI FONKSIYONLAR
@@ -122,8 +125,126 @@ def rebuild_database():
     print(f"\nVeritabani yenilendi: {DB_FILE}")
     print(f"Toplam kayit: {len(df_final):,}")
 
+def load_prices_from_db(tickers, start_date=None, end_date=None, db_file=DB_FILE):
+    """
+    Veritabanindan secili hisselerin verisini ceker.
+    Tarihler (start_date, end_date) ISO 'YYYY-MM-DD' string olabilir.
+    """
+    if not tickers:
+        raise ValueError("En az bir ticker vermelisin.")
+
+    conn = sqlite3.connect(db_file)
+
+    placeholders = ",".join("?" * len(tickers))
+    query = f"""
+        SELECT Ticker, Tarih, KapanisTL
+        FROM prices_adjusted
+        WHERE Ticker IN ({placeholders})
+    """
+
+    params = list(tickers)
+
+    if start_date is not None:
+        query += " AND Tarih >= ?"
+        params.append(start_date)
+
+    if end_date is not None:
+        query += " AND Tarih <= ?"
+        params.append(end_date)
+
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+
+    if df.empty:
+        print("Uyari: secili aralik icin hic veri bulunamadi.")
+        return df
+
+    # Tarih'i datetime'e cevir
+    df["Tarih"] = pd.to_datetime(df["Tarih"], errors="coerce").dt.date
+    return df
+
+def fill_excel_from_db(template_path, output_path, db_file=DB_FILE, date_col_name=None):
+    """
+    Bos (sablon) Excel dosyasini SQLite veritabanindan cektigimiz fiyatlarla doldurur.
+
+    Varsayim:
+      - Ilk sutun tarih sutunu (veya date_col_name ile verilen sutun)
+      - Diger sutun adlari ticker sembolleri
+    """
+    # 1) Sablon Excel'i oku
+    template_df = pd.read_excel(template_path)
+
+    # Tarih sutununu belirle
+    if date_col_name is not None and date_col_name in template_df.columns:
+        date_col = date_col_name
+    else:
+        # yoksa ilk sutunu tarih varsay
+        date_col = template_df.columns[0]
+
+    # Ticker sutunlari (tarih sutunundan baska hepsi)
+    ticker_cols = [c for c in template_df.columns if c != date_col]
+    if not ticker_cols:
+        raise ValueError("Sablon Excel'de ticker sutunu yok gibi gorunuyor. En az bir ticker sutunu olmali.")
+
+    # Tarihleri normalize et
+    dates = pd.to_datetime(template_df[date_col], format="%d/%m/%Y", errors="coerce").dt.date
+
+    # 2) Veritabanindan ilgili tarih araligini ve ticker'lari cek
+    start_iso = min(dates).isoformat()
+    end_iso   = max(dates).isoformat()
+
+    prices_df = load_prices_from_db(
+        tickers=ticker_cols,
+        start_date=start_iso,
+        end_date=end_iso,
+        db_file=db_file,
+    )
+
+    if prices_df.empty:
+        print("Uyari: Veritabanindan hic fiyat donmedi, Excel bos kalacak.")
+        filled = template_df.copy()
+        filled.to_excel(output_path, index=False)
+        print(f"Bos Excel sablonu {output_path} dosyasina yazildi.")
+        return
+
+    # 3) Pivot: satirlarda Tarih, sutunlarda Ticker olacak sekilde
+    price_matrix = (
+        prices_df
+        .pivot(index="Tarih", columns="Ticker", values="KapanisTL")
+        .sort_index()
+    )
+
+    # Excel'deki tarih ve ticker setine gore yeniden hizala
+    price_matrix = price_matrix.reindex(index=dates, columns=ticker_cols)
+    price_matrix = price_matrix.ffill()
+
+
+    # 4) Sablon uzerine yazarak doldur
+    filled = template_df.copy()
+    for t in ticker_cols:
+        if t in price_matrix.columns:
+            filled[t] = price_matrix[t].values
+        else:
+            # Verisi olmayan ticker'lar NaN kalir
+            print(f"Uyari: {t} icin veritabanda hic kayit yok, sutun bos kalacak.")
+
+    # 5) Disari yaz
+    filled.to_excel(output_path, index=False)
+    print(f"Excel olusturuldu: {output_path}")
+    # --- Summary information (beginning) ---
+    print("\n=== Excel Fill Summary ===")
+    print(f"Start date in template: {start_iso}")
+    print(f"End date in template:   {end_iso}")
+    print(f"Total dates:            {len(dates)}")
+    print(f"Total tickers:          {len(ticker_cols)}")
+    print("============================\n")
 
 if __name__ == "__main__":
-    print(f"\nIslem basladi: {START_DATE} → {END_DATE}")
-    rebuild_database()
-    print("Tamamlandi ✅")
+    #print(f"\nIslem basladi: {START_DATE} → {END_DATE}")
+    #rebuild_database()
+    #print("Tamamlandi ✅")
+
+    print("\nExcel doldurma islemi basladi...")    
+    fill_excel_from_db(TEMPLATE_XLSX, OUTPUT_XLSX, db_file=DB_FILE, date_col_name=None)
+    print("Excel doldurma islemi tamamlandi ✅")
+

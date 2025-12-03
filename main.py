@@ -163,7 +163,6 @@ def load_prices_from_db(tickers, start_date=None, end_date=None, db_file=DB_FILE
     df["Tarih"] = pd.to_datetime(df["Tarih"], errors="coerce").dt.date
     return df
 
-def fill_excel_from_db(template_path, output_path, db_file=DB_FILE, date_col_name=None):
     """
     Bos (sablon) Excel dosyasini SQLite veritabanindan cektigimiz fiyatlarla doldurur.
 
@@ -239,12 +238,95 @@ def fill_excel_from_db(template_path, output_path, db_file=DB_FILE, date_col_nam
     print(f"Total tickers:          {len(ticker_cols)}")
     print("============================\n")
 
+def fill_excel_from_db(template_path, output_path, db_file=DB_FILE):
+    """
+    Excel sablonu:
+      - 1. satir (row 0): B1'den itibaren tarihler (28/11/15, 29/11/15, ...)
+      - A sutunu (col 0): A2'den itibaren ticker'lar (AEFES, AGESA, ...)
+      - B2 ve sonrasindaki hucreler fiyatlarla doldurulacak.
+    """
+
+    # 1) Sablonu oku (hiçbir satiri header olarak kullanma)
+    template_df = pd.read_excel(template_path, header=None)
+
+    # --- Ticker listesi: A sutunu, 2. satirdan asagiya ---
+    ticker_series = template_df.iloc[1:, 0]          # col 0, rows 1+
+    tickers = ticker_series.dropna().astype(str).tolist()
+    if not tickers:
+        raise ValueError("Sablon Excel'de A2'den asagiya en az bir ticker olmali.")
+
+    # --- Tarih listesi: 1. satir, B sutunundan saga ---
+    date_series = template_df.iloc[0, 1:]            # row 0, cols 1+
+    date_strings = date_series.dropna().astype(str)
+    if date_strings.empty:
+        raise ValueError("Sablon Excel'de B1'den itibaren en az bir tarih olmali.")
+
+    # dd/mm/yy veya dd/mm/yyyy, gun once: dayfirst=True US karisikliklarini engeller
+    dates = pd.to_datetime(date_strings, dayfirst=True, errors="coerce").dt.date
+    if dates.isnull().any():
+        raise ValueError("1. satirdaki tarihlerden bazilari parse edilemedi (tarih formati dd/mm/yy ya da dd/mm/yyyy olmali).")
+
+    dates_list = list(dates)
+    start_iso = min(dates_list).isoformat()
+    end_iso   = max(dates_list).isoformat()
+
+    # --- Ozet log ---
+    print("\n=== Excel Fill Summary ===")
+    print(f"Start date in template: {start_iso}")
+    print(f"End date in template:   {end_iso}")
+    print(f"Total dates:            {len(dates_list)}")
+    print(f"Total tickers:          {len(tickers)}")
+    print("============================\n")
+
+    # 2) Veritabanindan fiyatlari cek
+    prices_df = load_prices_from_db(
+        tickers=tickers,
+        start_date=start_iso,
+        end_date=end_iso,
+        db_file=db_file,
+    )
+
+    if prices_df.empty:
+        print("Uyari: Veritabanindan hic fiyat gelmedi, sablon oldugu gibi kaydediliyor.")
+        template_df.to_excel(output_path, header=False, index=False)
+        return
+
+    # 3) Pivot: satirlar Tarih, sutunlar Ticker
+    price_matrix = (
+        prices_df
+        .pivot(index="Tarih", columns="Ticker", values="KapanisTL")
+        .sort_index()
+    )
+
+    # Sablondaki tarih ve ticker listesine gore hizala ve weekend/holiday icin ffill
+    price_matrix = price_matrix.reindex(index=dates_list, columns=tickers)
+    price_matrix = price_matrix.ffill()
+
+    # Excel icin: satirlar ticker, sutunlar tarih olacak sekilde cevir
+    matrix_for_excel = price_matrix.T   # shape: (len(tickers), len(dates_list))
+
+    # 4) Sablonun kopyasini al ve B2'den itibaren doldur
+    filled = template_df.copy()
+    n_tickers = len(tickers)
+    n_dates   = len(dates_list)
+
+    # rows 1..1+n_tickers-1, cols 1..1+n_dates-1
+    filled.iloc[1:1 + n_tickers, 1:1 + n_dates] = matrix_for_excel.values
+
+    # 5) Disari yaz (ExcelWriter kullanarak daha temiz cikti)
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        filled.to_excel(writer, header=False, index=False)
+
+    print(f"Excel successfully generated for range {start_iso} → {end_iso}")
+
+
+
 if __name__ == "__main__":
     #print(f"\nIslem basladi: {START_DATE} → {END_DATE}")
     #rebuild_database()
     #print("Tamamlandi ✅")
 
     print("\nExcel doldurma islemi basladi...")    
-    fill_excel_from_db(TEMPLATE_XLSX, OUTPUT_XLSX, db_file=DB_FILE, date_col_name=None)
+    fill_excel_from_db(TEMPLATE_XLSX, OUTPUT_XLSX, db_file=DB_FILE)
     print("Excel doldurma islemi tamamlandi ✅")
 

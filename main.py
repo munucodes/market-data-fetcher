@@ -15,6 +15,8 @@ from datetime import date
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+import numpy as np
+
 
 # ------------------------------------------------
 # AYARLAR
@@ -183,81 +185,6 @@ def load_prices_from_db(tickers, start_date=None, end_date=None, db_file=DB_FILE
     df["Tarih"] = pd.to_datetime(df["Tarih"], errors="coerce").dt.date
     return df
 
-    """
-    Bos (sablon) Excel dosyasini SQLite veritabanindan cektigimiz fiyatlarla doldurur.
-
-    Varsayim:
-      - Ilk sutun tarih sutunu (veya date_col_name ile verilen sutun)
-      - Diger sutun adlari ticker sembolleri
-    """
-    # 1) Sablon Excel'i oku
-    template_df = pd.read_excel(template_path)
-
-    # Tarih sutununu belirle
-    if date_col_name is not None and date_col_name in template_df.columns:
-        date_col = date_col_name
-    else:
-        # yoksa ilk sutunu tarih varsay
-        date_col = template_df.columns[0]
-
-    # Ticker sutunlari (tarih sutunundan baska hepsi)
-    ticker_cols = [c for c in template_df.columns if c != date_col]
-    if not ticker_cols:
-        raise ValueError("Sablon Excel'de ticker sutunu yok gibi gorunuyor. En az bir ticker sutunu olmali.")
-
-    # Tarihleri normalize et
-    dates = pd.to_datetime(template_df[date_col], format="%d/%m/%Y", errors="coerce").dt.date
-
-    # 2) Veritabanindan ilgili tarih araligini ve ticker'lari cek
-    start_iso = min(dates).isoformat()
-    end_iso   = max(dates).isoformat()
-
-    prices_df = load_prices_from_db(
-        tickers=ticker_cols,
-        start_date=start_iso,
-        end_date=end_iso,
-        db_file=db_file,
-    )
-
-    if prices_df.empty:
-        print("Uyari: Veritabanindan hic fiyat donmedi, Excel bos kalacak.")
-        filled = template_df.copy()
-        filled.to_excel(output_path, index=False)
-        print(f"Bos Excel sablonu {output_path} dosyasina yazildi.")
-        return
-
-    # 3) Pivot: satirlarda Tarih, sutunlarda Ticker olacak sekilde
-    price_matrix = (
-        prices_df
-        .pivot(index="Tarih", columns="Ticker", values="KapanisTL")
-        .sort_index()
-    )
-
-    # Excel'deki tarih ve ticker setine gore yeniden hizala
-    price_matrix = price_matrix.reindex(index=dates, columns=ticker_cols)
-    price_matrix = price_matrix.ffill()
-
-
-    # 4) Sablon uzerine yazarak doldur
-    filled = template_df.copy()
-    for t in ticker_cols:
-        if t in price_matrix.columns:
-            filled[t] = price_matrix[t].values
-        else:
-            # Verisi olmayan ticker'lar NaN kalir
-            print(f"Uyari: {t} icin veritabanda hic kayit yok, sutun bos kalacak.")
-
-    # 5) Disari yaz
-    filled.to_excel(output_path, index=False)
-    print(f"Excel olusturuldu: {output_path}")
-    # --- Summary information (beginning) ---
-    print("\n=== Excel Fill Summary ===")
-    print(f"Start date in template: {start_iso}")
-    print(f"End date in template:   {end_iso}")
-    print(f"Total dates:            {len(dates)}")
-    print(f"Total tickers:          {len(ticker_cols)}")
-    print("============================\n")
-
 def fill_excel_from_db(template_path, output_path, db_file=DB_FILE):
     """
     Excel sablonu:
@@ -320,7 +247,29 @@ def fill_excel_from_db(template_path, output_path, db_file=DB_FILE):
 
     # Sablondaki tarih ve ticker listesine gore hizala ve weekend/holiday icin ffill
     price_matrix = price_matrix.reindex(index=dates_list, columns=tickers)
-    price_matrix = price_matrix.ffill()
+    
+    # last real date per ticker
+    last_real = (
+        prices_df.groupby("Ticker")["Tarih"]
+        .max()
+        .rename("LAST_REAL_DATE")
+    )
+
+    pm = price_matrix.copy()
+    pm["Tarih"] = pm.index
+
+    # normal ffill
+    pm = pm.ffill()
+
+
+    # remove future fill
+    for t in tickers:
+        lr = last_real.get(t)
+        if lr is not None:
+            pm.loc[pm["Tarih"] > lr, t] = np.nan
+
+    pm.set_index("Tarih", inplace=True)
+    price_matrix = pm
 
     # Fiyatlari 2 ondalık basamaga yuvarla (sadece Excel icin, DB'yi etkilemez)
     price_matrix = price_matrix.round(2)
@@ -361,4 +310,3 @@ if __name__ == "__main__":
     print("\nExcel doldurma islemi basladi...")    
     fill_excel_from_db(TEMPLATE_XLSX, OUTPUT_XLSX, db_file=DB_FILE)
     print("Excel doldurma islemi tamamlandi ✅")
-

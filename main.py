@@ -39,23 +39,43 @@ OUTPUT_XLSX   = "output/portfolio_trading_filled.xlsx"  # cikti
 # ------------------------------------------------
 # YARDIMCI FONKSIYONLAR
 # ------------------------------------------------
-def get_all_symbols():
-    """Sol ustteki combobox’taki tum sembolleri dsndurur."""
-    r = requests.get(PAGE, timeout=30)
-    r.raise_for_status()
+
+def get_all_symbols(max_retries=3, delay_seconds=5):
+    """Sol ustteki combobox’taki tum sembolleri döndürür."""
+
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Sembol sayfası isteniyor... (deneme {attempt}/{max_retries})")
+            r = requests.get(PAGE, headers=HEADERS, timeout=30)
+            r.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            print(f"get_all_symbols hata: {e}")
+            if attempt == max_retries:
+                # Bütün denemeler bitti, hâlâ olmuyorsa yukarı fırlat
+                raise
+            time.sleep(delay_seconds)
+
     soup = BeautifulSoup(r.text, "html.parser")
     symbols = set()
+
     for opt in soup.find_all("option"):
         txt = (opt.get_text() or "").strip()
         val = (opt.get("value") or "").strip()
+
         m = re.match(r"^([A-Z0-9]{3,6})(?:\s*-.*)?$", txt)
         if m:
             symbols.add(m.group(1))
+
         if re.fullmatch(r"[A-Z0-9]{3,6}", val):
             symbols.add(val)
+
     syms = sorted(symbols)
     if not syms:
-        raise RuntimeError("Sembol listesi bulunamadi — sayfa yapisi degismis olabilir.")
+        raise RuntimeError("Sembol listesi bulunamadı — sayfa yapısı değişmiş olabilir.")
     print(f"{len(syms)} sembol bulundu.")
     return syms
 

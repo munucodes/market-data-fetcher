@@ -51,9 +51,9 @@ def rebuild_database():
 
 
 if __name__ == "__main__":
-    #print(f"\nProcess started: {START_DATE} → {END_DATE}")
-    #rebuild_database()
-    #print("Completed ✅")
+    print(f"\nProcess started: {START_DATE} → {END_DATE}")
+    rebuild_database()
+    print("Completed ✅")
 
     print("\nExcel fill process started...")    
     fill_excel_from_db(TEMPLATE_XLSX, OUTPUT_XLSX, db_file=DB_FILE)
